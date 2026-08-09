@@ -39,6 +39,15 @@ endif
 APPELFLOADER_RUST_LIB := \
 	$(APPELFLOADER_RUST_OUT)/$(APPELFLOADER_RUST_TARGET)/release/libelfloader_rs.a
 
+# Kconfig symbols the Rust side needs at *compile* time, because they decide
+# which C the archive is allowed to reference. CONFIG_APPELFLOADER_ELF_BINFMT
+# guards the `uk_binfmt_loader_args` accessors in glue/shim.c, so `binfmt.rs`
+# has to be compiled out with them.
+APPELFLOADER_RUST_FEATURES-$(CONFIG_APPELFLOADER_ELF_BINFMT) += binfmt
+
+APPELFLOADER_RUST_FEATURE_FLAGS := $(if $(APPELFLOADER_RUST_FEATURES-y), \
+	--features $(subst $(space),$(comma),$(strip $(APPELFLOADER_RUST_FEATURES-y))))
+
 APPELFLOADER_RUST_SRCS := \
 	$(wildcard $(APPELFLOADER_RUST_DIR)/src/*.rs) \
 	$(APPELFLOADER_RUST_DIR)/Cargo.toml \
@@ -61,6 +70,7 @@ $(APPELFLOADER_RUST_LIB): $(APPELFLOADER_RUST_SRCS)
 			--manifest-path $(APPELFLOADER_RUST_DIR)/Cargo.toml \
 			--target $(APPELFLOADER_RUST_TARGET) \
 			--target-dir $(APPELFLOADER_RUST_OUT) \
+			$(APPELFLOADER_RUST_FEATURE_FLAGS) \
 			--release --locked --offline)
 
 APPELFLOADER_ALIBS-y += $(APPELFLOADER_RUST_LIB)

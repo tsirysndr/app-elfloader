@@ -12,6 +12,12 @@ name = "elfloader_rs"
 # the modules that talk to Unikraft are gated on `not(test)`.
 crate-type = ["staticlib"]
 
+[features]
+# Compile the `libukbinfmt` loader. Mirrors CONFIG_APPELFLOADER_ELF_BINFMT,
+# which is what guards the matching accessors in `glue/shim.c`; the two must
+# agree or the archive references C functions that were never compiled.
+binfmt = []
+
 [dependencies]
 
 [profile.release]

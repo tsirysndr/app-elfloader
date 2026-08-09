@@ -45,7 +45,11 @@ mod testutil;
 
 #[cfg(not(test))]
 mod app;
-#[cfg(not(test))]
+// The accessors this module calls live behind `#if CONFIG_APPELFLOADER_ELF_BINFMT`
+// in `glue/shim.c`, so compiling it when that option is off leaves the archive
+// with undefined references to C that was never built. `Makefile.uk` turns the
+// feature on from the same Kconfig symbol that guards the C side.
+#[cfg(all(not(test), feature = "binfmt"))]
 mod binfmt;
 #[cfg(not(test))]
 mod rt;
