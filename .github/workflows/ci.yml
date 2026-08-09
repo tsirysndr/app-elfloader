@@ -121,16 +121,24 @@ jobs:
             ARCH=${{ matrix.arch }} \
             CROSS_COMPILE=${{ matrix.cross_compile }}
 
-      # One image per defconfig, all named `elfloader_kvm-<arch>` by Unikraft.
-      # The defconfig goes into the artifact name so they do not collide in the
-      # release, and so it is obvious which rootfs a given image expects.
+      # Unikraft names the image after the VMM, not the platform:
+      # elfloader_qemu-x86_64, elfloader_fc-x86_64, elfloader_qemu-arm64. Glob
+      # for it rather than spelling it out, and insist on exactly one match so
+      # a naming change fails here instead of silently shipping the wrong file.
+      # The defconfig goes into the released name so the images do not collide
+      # and it stays obvious which rootfs a given image expects.
       - name: Collect image
         run: |
+          shopt -s nullglob
+          imgs=(workdir/build/elfloader_*-${{ matrix.arch }})
+          if [ ${#imgs[@]} -ne 1 ]; then
+            echo "expected exactly one image, found: ${imgs[*]:-none}"
+            ls -l workdir/build/ | grep elfloader || true
+            exit 1
+          fi
           mkdir -p dist
-          cp "workdir/build/elfloader_kvm-${{ matrix.arch }}" \
-             "dist/elfloader_${{ matrix.defconfig }}"
-          cp "workdir/build/elfloader_kvm-${{ matrix.arch }}.dbg" \
-             "dist/elfloader_${{ matrix.defconfig }}.dbg"
+          cp "${imgs[0]}"      "dist/elfloader_${{ matrix.defconfig }}"
+          cp "${imgs[0]}.dbg"  "dist/elfloader_${{ matrix.defconfig }}.dbg"
           ls -l dist
 
       - uses: actions/upload-artifact@v4
