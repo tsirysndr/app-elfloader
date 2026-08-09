@@ -94,8 +94,23 @@ fails with an install hint if it is missing.
 
 **x86_64**: builds and boots.
 
-**arm64**: builds and boots; the loader places the image, the interpreter and
-the auxiliary vector correctly (verified against a real `node` + musl image),
-and control reaches the dynamic linker, which gets as far as loading shared
-libraries before faulting. That is further than the C loader reached on this
-architecture, but it is not yet a working application.
+**arm64**: builds and boots, and dynamically linked C and C++ programs run.
+
+Getting there turned up two arm64 bugs in Unikraft, neither of them in the
+loader — the C `app-elfloader` failed identically:
+
+* **`struct stat` is the x86_64 layout on every architecture.** vfscore's
+  `vn_stat()` does `memset(st, 0, sizeof(struct stat))` on the application's
+  buffer, and Unikraft's definition is 144 bytes where arm64 uses 128, so every
+  `stat()`/`fstat()` overwrote 16 bytes past the end of it. In musl's
+  `load_library()` that is the saved frame pointer and return address, so any
+  binary loading a second shared object returned to address 0.
+
+* **The arm64 signal trampoline has never assembled** — it uses SP as an
+  operand of `AND` — so `CONFIG_LIBPOSIX_PROCESS_SIGNAL` could not be enabled
+  and no CPU fault reached the application as a signal.
+
+Both fixes live in bsdkrun's `library/unikraft-base/patches/apply.sh`. node now
+reaches OpenSSL's SM3 probe, which executes an undefined instruction on purpose
+and expects `SIGILL`; that hits a third gap in the same arm64 signal path. See
+`../bsdkrun/examples/unikraft-expressjs/repro/README.md`.
