@@ -48,10 +48,15 @@ APPELFLOADER_RUST_FEATURES-$(CONFIG_APPELFLOADER_ELF_BINFMT) += binfmt
 APPELFLOADER_RUST_FEATURE_FLAGS := $(if $(APPELFLOADER_RUST_FEATURES-y), \
 	--features $(subst $(space),$(comma),$(strip $(APPELFLOADER_RUST_FEATURES-y))))
 
+# $(UK_CONFIG) is a prerequisite because the *feature set* is derived from
+# Kconfig: without it, toggling CONFIG_APPELFLOADER_ELF_BINFMT leaves the
+# previously built archive in place and the link fails on the binfmt entry
+# points that glue/shim.c has just started referencing.
 APPELFLOADER_RUST_SRCS := \
 	$(wildcard $(APPELFLOADER_RUST_DIR)/src/*.rs) \
 	$(APPELFLOADER_RUST_DIR)/Cargo.toml \
-	$(APPELFLOADER_RUST_DIR)/rust-toolchain.toml
+	$(APPELFLOADER_RUST_DIR)/rust-toolchain.toml \
+	$(UK_CONFIG)
 
 # CARGO can be overridden for a pinned toolchain (`make CARGO="cargo +1.83"`).
 CARGO ?= cargo
