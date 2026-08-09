@@ -90,6 +90,24 @@ jobs:
           git clone --depth 1 --branch "$LWIP_REF" \
             https://github.com/unikraft/lib-lwip workdir/libs/lwip
 
+      # Upstream bug, live in RELEASE-0.21.0 and staging alike:
+      # lib/syscall_shim/arch/arm64/syscall_handler.c dereferences
+      # `struct ukarch_execenv` while including only <uk/arch/types.h>, so any
+      # arm64 build with the syscall handler enabled fails to compile. This is
+      # the same one-line fix bsdkrun's unikraft-base/patches/apply.sh applies;
+      # it turns into a no-op the moment upstream carries the include.
+      - name: Patch Unikraft (arm64 syscall_shim include)
+        if: matrix.arch == 'arm64'
+        run: |
+          f=workdir/unikraft/lib/syscall_shim/arch/arm64/syscall_handler.c
+          if grep -q 'uk/arch/ctx.h' "$f"; then
+            echo "$f already includes <uk/arch/ctx.h> -- upstream fixed, skipping"
+          else
+            sed -i 's|#include <uk/arch/types.h>|#include <uk/arch/ctx.h>\n#include <uk/arch/types.h>|' "$f"
+            grep -q 'uk/arch/ctx.h' "$f" || { echo "patch did not apply"; exit 1; }
+            echo "patched $f"
+          fi
+
       - name: Configure
         run: |
           make defconfig \
