@@ -35,8 +35,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        working-directory: rust
-        run: rustup show
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
       - name: Test
         run: make test
@@ -73,11 +74,14 @@ jobs:
             build-essential libncurses-dev libyaml-dev flex bison \
             wget unzip uuid-runtime python3 ${{ matrix.apt_extra }}
 
+      # Unikraft invokes cargo from its own build directory, so rust/'s
+      # rust-toolchain.toml is not in scope there: the bare-metal target has to
+      # be present on the *default* toolchain, not just the toolchain-file one.
       - name: Install Rust toolchain
-        working-directory: rust
         run: |
-          rustup show
-          rustup target add ${{ matrix.rust_target }}
+          rustup toolchain install stable --profile minimal \
+            --target ${{ matrix.rust_target }}
+          rustup default stable
 
       - name: Fetch Unikraft
         run: |

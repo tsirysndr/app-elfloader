@@ -22,5 +22,13 @@ all:
 test:
 	@cargo test --manifest-path $(PWD)/rust/Cargo.toml
 
-$(MAKECMDGOALS):
-	@$(MAKE) -C $(UK_ROOT) A=$(PWD) L=$(LIBS-y) O=$(UK_BUILD) P=$(PLATS-y) $(MAKECMDGOALS)
+# Everything else is forwarded to Unikraft. `test` is filtered out because the
+# catch-all rule below would otherwise override the recipe above -- make keeps
+# the last recipe defined for a target -- and `make test` would go looking for
+# a Unikraft tree it does not need.
+UK_GOALS := $(filter-out test,$(MAKECMDGOALS))
+
+ifneq ($(UK_GOALS),)
+$(UK_GOALS):
+	@$(MAKE) -C $(UK_ROOT) A=$(PWD) L=$(LIBS-y) O=$(UK_BUILD) P=$(PLATS-y) $(UK_GOALS)
+endif
