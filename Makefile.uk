@@ -26,7 +26,13 @@ APPELFLOADER_SRCS-$(CONFIG_APPELFLOADER_VDSO) += $(APPELFLOADER_BASE)/vdso/vsysc
 # spilling a NEON register into an interrupt-time code path.
 #
 APPELFLOADER_RUST_DIR    := $(APPELFLOADER_BASE)/rust
-APPELFLOADER_RUST_OUT    := $(APPELFLOADER_BUILD)/rust
+
+# Cargo's target directory. Overridable (and inherited from the environment,
+# hence `?=`) so a caller can point it at a cache that outlives the Unikraft
+# build tree -- the loader is the same archive for a given source revision,
+# target and feature set, and rebuilding it on every kernel build is pure
+# waste. bsdkrun's build.sh mounts a host directory here.
+APPELFLOADER_RUST_CACHE ?= $(APPELFLOADER_BUILD)/rust
 
 ifeq ($(CONFIG_ARCH_ARM_64),y)
 APPELFLOADER_RUST_TARGET := aarch64-unknown-none-softfloat
@@ -36,8 +42,12 @@ else
 $(error app-elfloader-rs supports arm64 and x86_64 only)
 endif
 
-APPELFLOADER_RUST_LIB := \
-	$(APPELFLOADER_RUST_OUT)/$(APPELFLOADER_RUST_TARGET)/release/libelfloader_rs.a
+# What cargo produces, in the (possibly shared) cache...
+APPELFLOADER_RUST_BUILT := \
+	$(APPELFLOADER_RUST_CACHE)/$(APPELFLOADER_RUST_TARGET)/release/libelfloader_rs.a
+
+# ...and the copy this build links, inside the build tree.
+APPELFLOADER_RUST_LIB := $(APPELFLOADER_BUILD)/libelfloader_rs.a
 
 # Kconfig symbols the Rust side needs at *compile* time, because they decide
 # which C the archive is allowed to reference. CONFIG_APPELFLOADER_ELF_BINFMT
@@ -69,18 +79,28 @@ endif
 
 # --offline is safe because the crate has no dependencies; it keeps the build
 # from reaching for a registry it does not need. --locked makes that explicit.
+#
+# The archive is only copied into the build tree when it actually differs, so
+# an unchanged loader does not give the 130 MB unikernel a newer prerequisite
+# and force a relink. cargo's own up-to-date check makes the build itself a
+# no-op in that case, so the whole rule costs well under a second.
 $(APPELFLOADER_RUST_LIB): $(APPELFLOADER_RUST_SRCS)
-	$(call verbose_cmd,CARGO,appelfloader: $(notdir $@), \
+	$(call verbose_cmd,CARGO,appelfloader: $(notdir $(APPELFLOADER_RUST_BUILT)), \
 		$(CARGO) build \
 			--manifest-path $(APPELFLOADER_RUST_DIR)/Cargo.toml \
 			--target $(APPELFLOADER_RUST_TARGET) \
-			--target-dir $(APPELFLOADER_RUST_OUT) \
+			--target-dir $(APPELFLOADER_RUST_CACHE) \
 			$(APPELFLOADER_RUST_FEATURE_FLAGS) \
 			--release --locked --offline)
+	$(Q)cmp -s $(APPELFLOADER_RUST_BUILT) $@ 2>/dev/null || \
+		$(call verbose_cmd,CACHE,appelfloader: $(notdir $@), \
+			cp $(APPELFLOADER_RUST_BUILT) $@)
 
 APPELFLOADER_ALIBS-y += $(APPELFLOADER_RUST_LIB)
 
-APPELFLOADER_CLEAN += $(APPELFLOADER_RUST_OUT)
+# The cache is deliberately not in CLEAN: it is shared across builds, and
+# `make clean` should not throw away work that is still valid.
+APPELFLOADER_CLEAN += $(APPELFLOADER_RUST_LIB)
 
 # Run the loader's own tests on the build host. Not wired into `all`: it builds
 # for the host triple, which is a different compilation from the one above.
