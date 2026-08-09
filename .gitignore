@@ -1,0 +1,4 @@
+/rust/target/
+/workdir/
+*.o
+*.a

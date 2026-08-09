@@ -1,0 +1,29 @@
+[package]
+name = "elfloader"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "ELF program loader core for the Unikraft app-elfloader unikernel"
+
+[lib]
+name = "elfloader_rs"
+# staticlib is what Unikraft's build links (see ../Makefile.uk). `cargo test`
+# builds the same sources as a test harness with std available, which is why
+# the modules that talk to Unikraft are gated on `not(test)`.
+crate-type = ["staticlib"]
+
+[dependencies]
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
+codegen-units = 1
+# Kept on deliberately: this crate parses attacker-controlled ELF headers, and
+# a wrapped `p_vaddr + p_memsz` is exactly the bug class that turns a malformed
+# image into an out-of-bounds map. A panic here aborts the unikernel with a
+# message, which beats mapping the wrong range.
+overflow-checks = true
+
+# `panic` is deliberately not set for dev: cargo ignores it for the test
+# profile anyway, and setting it only produces a warning on every `cargo test`.

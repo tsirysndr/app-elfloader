@@ -1,0 +1,147 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      unikraft_ref:
+        description: 'Unikraft tag/branch to build against'
+        required: false
+        default: RELEASE-0.21.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  # The loader is a drop-in for app-elfloader, so it is pinned to a released
+  # Unikraft rather than staging. Bump both together: the libs carry the same
+  # release tags as the core.
+  UNIKRAFT_REF: ${{ github.event.inputs.unikraft_ref || 'RELEASE-0.21.0' }}
+  LWIP_REF: RELEASE-0.21.0
+
+jobs:
+  # The loader's own tests: pure logic, host triple, no Unikraft tree.
+  test:
+    name: cargo test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: rustup show
+
+      - name: Test
+        run: make test
+
+  build:
+    name: ${{ matrix.defconfig }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - defconfig: qemu-x86_64-initrd
+            arch: x86_64
+            rust_target: x86_64-unknown-none
+          - defconfig: qemu-x86_64-9pfs
+            arch: x86_64
+            rust_target: x86_64-unknown-none
+          - defconfig: fc-x86_64-initrd
+            arch: x86_64
+            rust_target: x86_64-unknown-none
+          - defconfig: qemu-aarch64-9pfs
+            arch: arm64
+            rust_target: aarch64-unknown-none-softfloat
+            cross_compile: aarch64-linux-gnu-
+            apt_extra: gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libncurses-dev libyaml-dev flex bison \
+            wget unzip uuid-runtime python3 ${{ matrix.apt_extra }}
+
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: |
+          rustup show
+          rustup target add ${{ matrix.rust_target }}
+
+      - name: Fetch Unikraft
+        run: |
+          git clone --depth 1 --branch "$UNIKRAFT_REF" \
+            https://github.com/unikraft/unikraft workdir/unikraft
+          git clone --depth 1 --branch "$LWIP_REF" \
+            https://github.com/unikraft/lib-lwip workdir/libs/lwip
+
+      - name: Configure
+        run: |
+          make defconfig \
+            ARCH=${{ matrix.arch }} \
+            CROSS_COMPILE=${{ matrix.cross_compile }} \
+            UK_DEFCONFIG="$PWD/defconfigs/${{ matrix.defconfig }}"
+
+      - name: Build
+        run: |
+          make -j"$(nproc)" \
+            ARCH=${{ matrix.arch }} \
+            CROSS_COMPILE=${{ matrix.cross_compile }}
+
+      # One image per defconfig, all named `elfloader_kvm-<arch>` by Unikraft.
+      # The defconfig goes into the artifact name so they do not collide in the
+      # release, and so it is obvious which rootfs a given image expects.
+      - name: Collect image
+        run: |
+          mkdir -p dist
+          cp "workdir/build/elfloader_kvm-${{ matrix.arch }}" \
+             "dist/elfloader_${{ matrix.defconfig }}"
+          cp "workdir/build/elfloader_kvm-${{ matrix.arch }}.dbg" \
+             "dist/elfloader_${{ matrix.defconfig }}.dbg"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: elfloader_${{ matrix.defconfig }}
+          path: dist/
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [test, build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum elfloader_* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/*

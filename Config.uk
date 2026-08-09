@@ -1,0 +1,211 @@
+### app-elfloader-rs
+#
+# The Kconfig surface is deliberately identical to upstream app-elfloader, so
+# an existing Kraftfile or defconfig can point at this loader without changing
+# a single symbol. Two differences, both subtractive:
+#
+#   * `select LIBELF` is gone. The loader has its own bounds-checked ELF64
+#     reader (rust/src/elf.rs), so lib-libelf is no longer a dependency.
+#   * `APPELFLOADER_STACK_NBPAGES` is unchanged in meaning, but the loader now
+#     refuses to overrun it instead of writing past the bottom.
+#
+### Invisible option for dependencies
+config APPELFLOADER_DEPENDENCIES
+	bool
+	default y
+	select LIBNOLIBC if !HAVE_LIBC
+	select LIBUKSCHED
+	select LIBSYSCALL_SHIM
+	select LIBSYSCALL_SHIM_HANDLER
+	select LIBSYSCALL_SHIM_HANDLER_ULTLS
+	select LIBPOSIX_TIME
+	imply LIBPOSIX_PROCESS
+	imply PAGING
+	imply LIBUKVMEM
+	imply LIBPOSIX_MMAP
+	imply LIBVFSCORE
+	imply LIBPOSIX_POLL
+	imply LIBPOSIX_POLL_YIELD
+	imply LIBPOSIX_SYSINFO
+	imply LIBPOSIX_TTY
+	imply LIBPOSIX_TTY_STDIO
+	imply LIBPOSIX_USER
+	imply LIBUKRANDOM
+	imply LIBPOSIX_ENVIRON
+
+# We use a separate option for the dependencies of elf_binfmt
+# to avoid duplication of build conditions in the Makefile
+config APPELFLOADER_ELF_BINFMT
+	bool
+	default y
+	depends on HAVE_VFS && LIBUKBINFMT
+	depends on LIBPOSIX_PROCESS_MULTITHREADING
+
+### App configuration
+choice
+	prompt "Load ELF from"
+	default APPELFLOADER_VFSEXEC
+
+	config APPELFLOADER_VFSEXEC
+		bool "VFS"
+		depends on HAVE_VFS
+		help
+			Loads an ELF executable from the virtual filesystem.
+			elfloader will automatically side-load a dynamic loader
+			if it is announced via the PT_INTERP program header.
+			This option is intended for most use cases.
+
+	config APPELFLOADER_INITRDEXEC
+		bool "Initramdisk (ELF)"
+		help
+			Loads an ELF executable that is given as init ramdisk.
+			Please note that this option expects the ramdisk to be
+			the ELF binary image (no filesystem). This option is
+			intended for creating elfloader unikernels without VFS
+			support.
+			Only statically-linked PIE executables are supported.
+endchoice
+
+config APPELFLOADER_CUSTOMAPPNAME
+	bool "Application name/path via command line"
+	default y if APPELFLOADER_VFSEXEC
+	default n
+	help
+		Without this option, any command line argument passed to an
+		elfloader unikernel is forwarded to the ELF application as
+		application argument. If this option is set, the first argument
+		from the kernel command line is used as program name (argv[0]).
+		In case the application is loaded from VFS (see
+		APPELFLOADER_VFSEXEC), this first argument is also the path
+		that is used for looking up the ELF image on the VFS.
+
+if APPELFLOADER_VFSEXEC
+config APPELFLOADER_VFSEXEC_PATH
+	string "Path to executable"
+	default "/init"
+	depends on !APPELFLOADER_CUSTOMAPPNAME
+	help
+		Compiled-in path to executable on the VFS.
+
+config APPELFLOADER_VFSEXEC_ENVPATH
+	bool "Locate executable with PATH"
+	default y
+	depends on APPELFLOADER_CUSTOMAPPNAME
+	depends on LIBPOSIX_ENVIRON
+	imply APPELFLOADER_VFSEXEC_EXECBIT
+	select LIBUKSTREAMBUF
+	select LIBUKARGPARSE
+	help
+		Searches for the executable in a set of directories specified
+		with the PATH environment variable.
+
+config APPELFLOADER_VFSEXEC_ENVPWD
+       bool "Set working directory to PWD"
+       default y
+       depends on LIBPOSIX_ENVIRON
+       help
+		If the environment variable PWD is set, the working
+		directory is changed to the given path.
+
+config APPELFLOADER_VFSEXEC_EXECBIT
+	bool "Enforce executable bit"
+	default y
+	help
+		Only execute application if executable bit is set.
+
+config APPELFLOADER_MULTIPROCESS
+	bool "Multiprocess application"
+	select LIBPOSIX_PROCESS_MULTIPROCESS
+	select LIBPOSIX_PROCESS_SIGNAL
+	select LIBUKBOOT_INIT
+endif
+
+config APPELFLOADER_STACK_NBPAGES
+	int "Application stack size (number of pages)"
+	default 32
+	help
+		<n> * 4K; 2 = 8KB, 16 = 64KB, 256 = 1MB ...
+
+config APPELFLOADER_DEBUG
+       bool "Enable debug messages"
+       default n
+
+config APPELFLOADER_VDSO
+	bool "Provide VDSO"
+	default n
+	help
+		Provides a VDSO image to ELF applications. The VDSO
+		works like a shared libary for the application but in the case
+		of Unikraft it provides function addresses for directly calling
+		(some) system call handlers.
+
+menuconfig APPELFLOADER_AUTOGEN
+	bool "Auto-generate configuration files (HFS)"
+	depends on HAVE_VFS
+	default y
+	help
+		Automatically generate configuration files according to the
+		Filesystem Hierarchy Standard (HFS) during initialization.
+
+if APPELFLOADER_AUTOGEN
+menu "/etc: Host-specific configuration files"
+	config APPELFLOADER_AUTOGEN_ETCRESOLVCONF
+		bool "./resolv.conf: DNS resolver settings"
+		depends on LIBUKNETDEV
+		imply LIBUKNETDEV_EINFO
+		default y
+		help
+			Generates "/etc/resolv.conf" based on available uknetdev einfo
+			fields: DNS server and DNS domain. Please note that these are
+			statically assigned network configuration options (for instance
+			via kernel parameter). If DHCP should be taken into account,
+			the selected network stack should generate this file instead.
+
+	config APPELFLOADER_AUTOGEN_ETCHOSTS
+		bool "./hosts: Static hostname resolution"
+		depends on LIBUKNETDEV
+		imply LIBUKNETDEV_EINFO
+		default y
+		help
+			Generates "/etc/hosts" based on available uknetdev einfo fields:
+			hostname, domain suffix, and IPv4 address. Please note that these
+			are statically assigned network configuration options (for instance
+			via kernel parameter). If DHCP should be taken into account, the
+			selected network stack should generate this file instead.
+
+	config APPELFLOADER_AUTOGEN_ETCHOSTS_LOCALHOST4
+		bool "Resolution entry for localhost (127.0.0.1)"
+		depends on APPELFLOADER_AUTOGEN_ETCHOSTS
+		default y if !LIBLWIP || LWIP_LOOPIF
+
+	config APPELFLOADER_AUTOGEN_ETCHOSTNAME
+		bool "./hostname: System hostname"
+		depends on LIBUKNETDEV
+		imply LIBUKNETDEV_EINFO
+		help
+			Generates "/etc/hostname" based on the first found statically
+			assigned hostname (einfo) that can be set by a uknetdev device.
+			Please note if DHCP should be taken into account, the selected
+			network stack should generate this file instead.
+endmenu
+
+choice
+	prompt "Creation mode"
+	default APPELFLOADER_AUTOGEN_SKIPEXIST
+
+	config APPELFLOADER_AUTOGEN_SKIPEXIST
+		bool "Skip files that already exists"
+		help
+			Only emits a message if a file already exists in the filesystem.
+
+	config APPELFLOADER_AUTOGEN_ERROREXIST
+		bool "Stop with an error message if a file already exists"
+		help
+			Emits an error if a file already exists in the filesystem.
+
+	config APPELFLOADER_AUTOGEN_REPLACEEXIST
+		bool "Overwrite existing files"
+		help
+			If a configuration file was already found in the filesystem
+endchoice
+endif

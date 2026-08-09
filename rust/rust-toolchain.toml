@@ -1,0 +1,6 @@
+[toolchain]
+channel = "stable"
+# The unikernel is freestanding: no OS, and no FP/SIMD in kernel code (Unikraft
+# builds arm64 with -mgeneral-regs-only and x86_64 with -mno-sse).
+targets = ["aarch64-unknown-none-softfloat", "x86_64-unknown-none"]
+components = ["rustfmt", "clippy"]

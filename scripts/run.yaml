@@ -1,0 +1,66 @@
+runs:
+  - name: nginx
+    rootfs: ../dynamic-apps/nginx
+    command: /usr/local/nginx/sbin/nginx -c /usr/local/nginx/conf/nginx.conf
+    memory: 64
+    networking: True
+  - name: helloworld-c
+    rootfs: ../dynamic-apps/lang/c/helloworld
+    command: /helloworld
+    memory: 64
+    networking: False
+  - name: sqlite3
+    rootfs: ../dynamic-apps/sqlite3
+    command: /usr/bin/sqlite3 
+    memory: 64
+    networking: False
+  - name: helloworld-cpp
+    rootfs: ../dynamic-apps/lang/c++/helloworld
+    command: /helloworld
+    memory: 64
+    networking: False
+  - name: http_server_cpp
+    rootfs: ../dynamic-apps/lang/c++/http_server
+    command: /http_server
+    memory: 64
+    networking: True
+  - name: http_server_c
+    rootfs: ../dynamic-apps/lang/c/http_server
+    command: /http_server
+    memory: 64
+    networking: True
+  - name: curl
+    rootfs: ../dynamic-apps/curl
+    command: /curl google.com
+    networking: True
+    memory: 64
+  - name: gnupg
+    rootfs: ../dynamic-apps/gnupg
+    command: /usr/bin/gpg --version
+    memory: 32
+    networking: False
+  - name: node
+    rootfs: ../dynamic-apps/node
+    command: /bin/node /http-hello.js
+    memory: 512
+    networking: True
+  - name: openssl
+    rootfs: ../dynamic-apps/openssl
+    command: /usr/bin/openssl sha256 /input.txt
+    memory: 64
+    networking: False
+  - name: bzip2
+    rootfs: ../dynamic-apps/bzip2
+    command: /bin/bzip2 -f -k /input.txt
+    memory: 64
+    networking: False
+  - name: gzip
+    rootfs: ../dynamic-apps/gzip
+    command: /bin/gzip  -k -f /input.txt
+    memory: 64
+    networking: False
+  - name: du
+    rootfs: ../dynamic-apps/du
+    command: /usr/bin/du /
+    memory: 64
+    networking: False
