@@ -84,6 +84,11 @@ endif
 # an unchanged loader does not give the 130 MB unikernel a newer prerequisite
 # and force a relink. cargo's own up-to-date check makes the build itself a
 # no-op in that case, so the whole rule costs well under a second.
+#
+# The copy uses `verbose_cmd_inner`, not `verbose_cmd`: the latter expands to a
+# string starting with `@`, which make only strips at the start of a recipe
+# line. Anywhere else -- such as inside this `if` -- the shell is handed a
+# literal `@printf` and the rule dies with "command not found".
 $(APPELFLOADER_RUST_LIB): $(APPELFLOADER_RUST_SRCS)
 	$(call verbose_cmd,CARGO,appelfloader: $(notdir $(APPELFLOADER_RUST_BUILT)), \
 		$(CARGO) build \
@@ -92,9 +97,10 @@ $(APPELFLOADER_RUST_LIB): $(APPELFLOADER_RUST_SRCS)
 			--target-dir $(APPELFLOADER_RUST_CACHE) \
 			$(APPELFLOADER_RUST_FEATURE_FLAGS) \
 			--release --locked --offline)
-	$(Q)cmp -s $(APPELFLOADER_RUST_BUILT) $@ 2>/dev/null || \
-		$(call verbose_cmd,CACHE,appelfloader: $(notdir $@), \
-			cp $(APPELFLOADER_RUST_BUILT) $@)
+	$(Q)if ! cmp -s $(APPELFLOADER_RUST_BUILT) $@ 2>/dev/null; then \
+		$(call verbose_cmd_inner,CACHE,appelfloader: $(notdir $@), \
+			cp $(APPELFLOADER_RUST_BUILT) $@); \
+	fi
 
 APPELFLOADER_ALIBS-y += $(APPELFLOADER_RUST_LIB)
 
